@@ -4,6 +4,8 @@ const router = express.Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Poste = require("../models/Poste");
+const Prestataire = require("../models/Prestataire");
 
 
 
@@ -31,25 +33,7 @@ router.post("/signup", async (req, res) => {
   }
 });
 
-// Connexion
-// router.post("/login", async (req, res) => {
-//   const { email, password } = req.body;
-//   try {
-//     const user = await User.findOne({ email });
-//     if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
 
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) return res.status(400).json({ message: "Mot de passe incorrect" });
-
-//     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-//       expiresIn: "1h"
-//     });
-
-//     res.status(200).json({ token, user: { id: user._id, email: user.email, role: user.role } });
-//   } catch (error) {
-//     res.status(500).json({ message: "Erreur serveur" });
-//   }
-// });
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -69,12 +53,78 @@ router.post("/login", async (req, res) => {
     }
 
     console.log("Connexion réussie");
-    return res.status(200).json({ message: "Connexion réussie" });
+    return res.status(200).json({ 
+      message: "Connexion réussie", 
+      userId: user._id,
+      role: user.role,
+      nom: user.nom,
+      prenom: user.prenom
+    });
+    
   } catch (err) {
-    console.error("Erreur serveur:", err); // ← CE LOG EST ESSENTIEL
+    console.error("Erreur serveur:", err); 
     return res.status(500).json({ message: "Erreur serveur" });
   }
 });
 
+router.get("/AllPosts", async (req, res) => {
+  try {
+    const posts = await Poste.find().populate("user", "nom prenom email");
+    res.status(200).json(posts);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des posts :", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+/////////
 
-module.exports = router;
+///////
+
+router.get("/recherchePrestataires", async (req, res) => {
+  const { keyword, location } = req.query; // Paramètres reçus dans l'URL
+
+  try {
+    // Construction du filtre
+    const query = {
+      $and: []
+    };
+
+    if (keyword) {
+      query.$and.push({
+        description: { $regex: keyword, $options: "i" }
+      });
+    }
+
+    if (location) {
+      query.$and.push({
+        $or: [
+          { ville: { $regex: location, $options: "i" } },
+          { pays: { $regex: location, $options: "i" } }
+        ]
+      });
+    }
+
+    if (query.$and.length === 0) delete query.$and;
+
+    const prestataires = await Prestataire.find(query).populate("user");
+
+    if (prestataires.length === 0) {
+      return res.status(404).json({ message: "Aucun prestataire trouvé" });
+    }
+
+    const resultats = prestataires.map((prest) => ({
+      nom: prest.user.nom,
+      prenom: prest.user.prenom,
+      profil: prest.user.profil,
+      description: prest.description
+    }));
+
+    return res.status(200).json(resultats);
+  } catch (error) {
+    console.error("Erreur lors de la recherche des prestataires:", error);
+    return res.status(500).json({ message: "Erreur serveur lors de la recherche." });
+  }
+});
+
+
+module.exports = router; 
