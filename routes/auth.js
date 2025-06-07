@@ -128,39 +128,7 @@ router.get("/recherchePrestataires", async (req, res) => {
 });
 
 
-// router.get("/profilPrestataire/:id", async (req, res) => {
-//   try {
-//     const prestataire = await Prestataire.findOne({ user: req.params.id }).populate("user");
-//     if (!prestataire) return res.status(404).json({ message: "Prestataire non trouvé" });
 
-//     res.json({
-//       nom: prestataire.user.nom,
-//       prenom: prestataire.user.prenom,
-//       profil: prestataire.user.profil,
-//       email:prestataire.user.email,
-//       genre:prestataire.user.genre,
-//       telephone:prestataire.user.telephone,
-//       description: prestataire.description,
-//       specialite: prestataire.specialite,
-//       ville: prestataire.ville,
-//       adresse:prestataire.adresse,
-//       codePostal:prestataire.codePostal,
-//       pays:prestataire.pays,
-//       tarifHoraire:prestataire.tarifHoraire,
-//       disponibilite:prestataire.disponibilite,
-//       siteWeb:prestataire.siteWeb,
-//         posts: posts.map(post => ({
-//         id: post._id,
-//         image: post.image,
-//         description: post.description,
-//         dateEdition: post.dateEdition
-//       }))
-
-//     });
-//   } catch (err) {
-//     res.status(500).json({ message: "Erreur serveur" });
-//   }
-// });
 router.get("/profilPrestataire/:id", async (req, res) => {
   try {
     const prestataire = await Prestataire.findOne({ user: req.params.id }).populate("user");
@@ -196,6 +164,9 @@ router.get("/profilPrestataire/:id", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
+
+
+
 
 
 
