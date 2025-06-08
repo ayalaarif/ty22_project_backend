@@ -144,6 +144,7 @@ router.get("/profilPrestataire/:id", async (req, res) => {
       genre: prestataire.user.genre,
       telephone: prestataire.user.telephone,
       description: prestataire.description,
+      description2: prestataire.description2,
       specialite: prestataire.specialite,
       ville: prestataire.ville,
       adresse: prestataire.adresse,
