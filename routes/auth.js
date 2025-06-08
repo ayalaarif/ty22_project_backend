@@ -166,6 +166,28 @@ router.get("/profilPrestataire/:id", async (req, res) => {
   }
 });
 
+router.get("/user/:id", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).lean();
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    let prestataireData = null;
+
+    if (user.role === "professionnel") {
+      prestataireData = await Prestataire.findOne({ user: user._id }).populate("posts").lean();
+    }
+
+    res.status(200).json({
+      user,
+      prestataire: prestataireData,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+
 
 
 
