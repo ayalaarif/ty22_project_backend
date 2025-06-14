@@ -296,7 +296,151 @@ router.delete("/post/:id", async (req, res) => {
   }
 });
 
+router.post("/favoris/:clientId/:proId", async (req, res) => {
+  try {
+    const { clientId, proId } = req.params;
 
+    const client = await User.findById(clientId);
+    if (!client) return res.status(404).json({ message: "Client introuvable" });
+
+    if (!client.favoris.includes(proId)) {
+      client.favoris.push(proId);
+      await client.save();
+    }
+
+    res.status(200).json({ message: "Ajouté aux favoris" });
+  } catch (err) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// Retourne la liste des favoris d'un utilisateur
+router.get("/favoris1/:userId", async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json([]);
+    res.json(user.favoris || []);
+  } catch (err) {
+    res.status(500).json([]);
+  }
+});
+
+// Retourne les professionnels favoris avec leur description prestataire
+router.get("/favoris/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findById(userId).populate("favoris", "nom prenom profil");
+
+    if (!user) return res.status(404).json([]);
+
+    // Pour chaque professionnel, récupérer aussi sa description prestataire
+    const favorisWithDetails = await Promise.all(
+      user.favoris.map(async (pro) => {
+        const prestataire = await Prestataire.findOne({ user: pro._id });
+        return {
+          _id: pro._id,
+          nom: pro.nom,
+          prenom: pro.prenom,
+          profil: pro.profil,
+          description: prestataire?.description || "Pas de description",
+        };
+      })
+    );
+
+    res.json(favorisWithDetails);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json([]);
+  }
+});
+
+
+router.delete("/favoris/:userId/:prestataireId", async (req, res) => {
+  const { userId, prestataireId } = req.params;
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    user.favoris = (user.favoris || []).filter(id => id.toString() !== prestataireId);
+    await user.save();
+
+    res.status(200).json({ message: "Favori retiré avec succès" });
+  } catch (err) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+
+// GET nombre de favoris
+router.get("/favoris/count/:userId", async (req, res) => {
+  const userId = req.params.userId;
+
+  try {
+    const user = await User.findById(userId).lean();
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    let count = 0;
+
+    if (user.role === "client") {
+      // nombre de professionnels que le client a mis en favoris
+      count = user.favoris?.length || 0;
+    } else if (user.role === "professionnel") {
+      // nombre de clients qui ont mis CE professionnel en favoris
+      count = await User.countDocuments({ favoris: userId });
+    }
+
+    res.status(200).json({ count });
+  } catch (error) {
+    console.error("Erreur lors du comptage des favoris:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+router.get("/top-prestataires", async (req, res) => {
+  try {
+    const top = await User.aggregate([
+      { $unwind: "$favoris" },
+      { $group: { _id: "$favoris", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "prestataire"
+        }
+      },
+      { $unwind: "$prestataire" },
+      {
+        $lookup: {
+          from: "prestataires",
+          localField: "_id",
+          foreignField: "user",
+          as: "details"
+        }
+      },
+      { $unwind: { path: "$details", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          id: "$prestataire._id",
+          nom: "$prestataire.nom",
+          prenom: "$prestataire.prenom",
+          profil: "$prestataire.profil",
+          description: "$details.description"
+        }
+      }
+    ]);
+
+    res.json(top);
+  } catch (err) {
+    console.error("Erreur top prestataires:", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
 
 
 module.exports = router; 

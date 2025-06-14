@@ -12,7 +12,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  role: { type: String, enum: ["client", "professionnel"], default: "client" }
+  role: { type: String, enum: ["client", "professionnel"], default: "client" },
+  favoris: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 });
 
 module.exports = mongoose.model("User", userSchema);
