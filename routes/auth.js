@@ -6,7 +6,8 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Poste = require("../models/Poste");
 const Prestataire = require("../models/Prestataire");
-
+const multer = require("multer");
+const path = require("path");
 
 
 
@@ -172,23 +173,128 @@ router.get("/user/:id", async (req, res) => {
     if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
 
     let prestataireData = null;
+    let posts = [];
 
     if (user.role === "professionnel") {
-      prestataireData = await Prestataire.findOne({ user: user._id }).populate("posts").lean();
+      prestataireData = await Prestataire.findOne({ user: user._id }).lean();
+
+      if (prestataireData) {
+        posts = await Poste.find({ user: user._id }).lean();
+      }
     }
 
     res.status(200).json({
       user,
       prestataire: prestataireData,
+      posts,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Erreur :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// Configuration de multer pour l'upload local
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({ storage: storage });
+
+router.put("/user/:id", upload.single("profil"), async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const userData = JSON.parse(req.body.user);
+    const prestataireData = req.body.prestataire ? JSON.parse(req.body.prestataire) : null;
+
+    if (req.file) {
+      userData.profil = `uploads/${req.file.filename}`;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, userData, { new: true });
+
+    if (updatedUser.role === "professionnel" && prestataireData) {
+      await Prestataire.findOneAndUpdate(
+        { user: userId },
+        { ...prestataireData, user: userId }, // 👈 s’assurer de lier à l’utilisateur
+        { new: true, upsert: true } // ✅ crée si inexistant
+      );
+    }
+
+    res.status(200).json({ message: "Profil mis à jour avec succès" });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+router.post("/posts", upload.single("image"), async (req, res) => {
+  try {
+    const { description, userId } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ message: "Image requise" });
+    }
+
+    const post = new Poste({
+      description,
+      image: `uploads/${req.file.filename}`,
+      user: userId,
+    });
+
+    await post.save();
+    res.status(201).json({ message: "Post ajouté avec succès" });
+  } catch (error) {
+    console.error("Erreur lors de l'ajout du post :", error);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
 
 
+// GET un post
+router.get("/post/:id", async (req, res) => {
+  try {
+    const post = await Poste.findById(req.params.id);
+    res.json(post);
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la récupération du post" });
+  }
+});
 
+
+
+router.put("/post/:id", upload.single("image"), async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const data = { description: req.body.description };
+
+    if (req.file) {
+      data.image = `uploads/${req.file.filename}`;
+    }
+
+    await Poste.findByIdAndUpdate(postId, data);
+    res.status(200).json({ message: "Post modifié avec succès" });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de la modification du post" });
+  }
+});
+
+router.delete("/post/:id", async (req, res) => {
+  try {
+    await Poste.findByIdAndDelete(req.params.id);
+    res.status(200).json({ message: "Post supprimé avec succès" });
+  } catch (error) {
+    console.error("Erreur suppression :", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
 
 
 

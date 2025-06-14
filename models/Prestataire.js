@@ -8,6 +8,11 @@ const prestataireSchema = new mongoose.Schema({
   pays: { type: String, required: true },
   specialite: { type: String, required: true },
   description: { type: String },
+  description2: {
+    type: String,
+    default: "",
+    trim: true
+  },
   tarifHoraire: { type: Number },
   disponibilite: [String],
   siteWeb: { type: String }

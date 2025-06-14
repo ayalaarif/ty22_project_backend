@@ -19,6 +19,8 @@ app.use(cors(corsOptions));
 
 // Middleware pour parser les requêtes JSON
 app.use(express.json());
+// 👉 Pour servir les images uploadées
+app.use('/uploads', express.static('uploads'));
 
 // Connexion à MongoDB
 mongoose.connect("mongodb://localhost:27017/ty22", {
