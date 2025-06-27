@@ -6,6 +6,9 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Poste = require("../models/Poste");
 const Prestataire = require("../models/Prestataire");
+const Review=require("../models/Review");
+const Message = require("../models/Message");
+
 const multer = require("multer");
 const path = require("path");
 
@@ -81,27 +84,54 @@ router.get("/AllPosts", async (req, res) => {
 
 ///////
 
+const removeDiacritics = (str) => {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
+
+// Génère des variantes du mot (féminin, pluriel...)
+const addGenderAndPluralVariants = (word) => {
+  return [
+    word,
+    word + "e",
+    word + "s",
+    word + "es",
+    word + "ne",
+    word + "nes",
+  ];
+};
+
 router.get("/recherchePrestataires", async (req, res) => {
-  const { keyword, location } = req.query; // Paramètres reçus dans l'URL
+  const { keyword, location } = req.query;
 
   try {
-    // Construction du filtre
-    const query = {
-      $and: []
-    };
+    const query = { $and: [] };
 
+    // Traitement du mot-clé
     if (keyword) {
-      query.$and.push({
-        description: { $regex: keyword, $options: "i" }
+      const sanitizedKeyword = removeDiacritics(keyword.toLowerCase());
+      const variants = addGenderAndPluralVariants(sanitizedKeyword);
+
+      // Crée un tableau de conditions avec $regex
+      const regexConditions = variants.map((variant) => {
+        const regex = new RegExp(variant, "i");
+        return {
+          $or: [
+            { description: { $regex: regex } },
+            { specialite: { $regex: regex } },
+          ],
+        };
       });
+
+      query.$and.push({ $or: regexConditions });
     }
 
+    // Traitement de la localisation
     if (location) {
       query.$and.push({
         $or: [
           { ville: { $regex: location, $options: "i" } },
-          { pays: { $regex: location, $options: "i" } }
-        ]
+          { pays: { $regex: location, $options: "i" } },
+        ],
       });
     }
 
@@ -109,16 +139,17 @@ router.get("/recherchePrestataires", async (req, res) => {
 
     const prestataires = await Prestataire.find(query).populate("user");
 
-    if (prestataires.length === 0) {
+    if (!prestataires.length) {
       return res.status(404).json({ message: "Aucun prestataire trouvé" });
     }
 
     const resultats = prestataires.map((prest) => ({
-       id: prest.user._id,
+      id: prest.user._id,
       nom: prest.user.nom,
       prenom: prest.user.prenom,
       profil: prest.user.profil,
-      description: prest.description
+      description: prest.description,
+      specialite: prest.specialite,
     }));
 
     return res.status(200).json(resultats);
@@ -127,7 +158,6 @@ router.get("/recherchePrestataires", async (req, res) => {
     return res.status(500).json({ message: "Erreur serveur lors de la recherche." });
   }
 });
-
 
 
 router.get("/profilPrestataire/:id", async (req, res) => {
@@ -442,5 +472,188 @@ router.get("/top-prestataires", async (req, res) => {
   }
 });
 
+router.post("/reviews", async (req, res) => {
+  const { contenu, auteur, destinataire } = req.body;
+
+  if (!contenu || !auteur || !destinataire) {
+    return res.status(400).json({ message: "Champs requis manquants" });
+  }
+
+  try {
+    const newReview = new Review({ contenu, auteur, destinataire });
+    await newReview.save();
+    console.log("Review sauvegardée :", newReview); // 🔍 debug
+    res.status(201).json(newReview);
+  } catch (err) {
+    console.error("Erreur lors de la création du review :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+router.post('/messages', async (req, res) => {
+  const { contenu, auteur, destinataire } = req.body;
+
+  if (!contenu || !auteur || !destinataire) {
+    return res.status(400).json({ error: "Tous les champs sont requis" });
+  }
+
+  try {
+    // Enregistrez le message dans la base de données
+    const message = new Message({
+      contenu,
+      auteur,
+      destinataire,
+      dateEnvoi: new Date(),
+    });
+
+    await message.save();
+
+    // Répondre avec un message de succès
+    return res.status(201).json({ success: 'Message envoyé avec succès!' });
+  } catch (err) {
+    console.error('Erreur lors de l\'envoi du message:', err);
+    return res.status(500).json({ error: "Une erreur est survenue lors de l'envoi du message" });
+  }
+});
+
+// GET les avis reçus ou envoyés selon le rôle
+router.get("/reviews/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    let reviews;
+
+    if (user.role === "professionnel") {
+      // Avis reçus
+      reviews = await Review.find({ destinataire: userId })
+        .populate("auteur", "nom prenom profil")
+        .sort({ createdAt: -1 });
+    } else {
+      // Avis envoyés
+      reviews = await Review.find({ auteur: userId })
+        .populate("destinataire", "nom prenom profil")
+        .sort({ createdAt: -1 });
+    }
+
+    res.status(200).json(reviews);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des avis :", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+
+router.get("/contacts/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    // Récupérer tous les messages où l'utilisateur est soit auteur, soit destinataire
+    const messages = await Message.find({
+      $or: [
+        { auteur: userId },
+        { destinataire: userId }
+      ]
+    }).populate("auteur destinataire");
+
+    const contactMap = {};
+
+    messages.forEach((msg) => {
+      let contactUser;
+      // Si l'utilisateur est l'auteur, le contact est le destinataire
+      if (msg.auteur._id.toString() === userId) {
+        contactUser = msg.destinataire;
+      } else {
+        contactUser = msg.auteur;
+      }
+
+      if (contactUser && !contactMap[contactUser._id.toString()]) {
+        contactMap[contactUser._id.toString()] = {
+          _id: contactUser._id,
+          nom: contactUser.nom,
+          prenom: contactUser.prenom,
+          profil: contactUser.profil,
+        };
+      }
+    });
+
+    const uniqueContacts = Object.values(contactMap);
+    res.json(uniqueContacts);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur lors du chargement des contacts." });
+  }
+});
+
+router.get("/messages/conversation/:userId/:contactId", async (req, res) => {
+  const { userId, contactId } = req.params;
+
+  try {
+    // Récupérer tous les messages entre les deux utilisateurs
+    const messages = await Message.find({
+      $or: [
+        { auteur: userId, destinataire: contactId },
+        { auteur: contactId, destinataire: userId }
+      ]
+    }).populate("auteur destinataire"); // Populate pour récupérer les détails des utilisateurs
+
+    // Retourner les messages triés par date de création (ascendant)
+    messages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    res.json(messages); // Renvoie les messages à l'utilisateur
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur lors de la récupération des messages." });
+  }
+});
+
+router.get('/avis/count/:userId', async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
+
+    let count = 0;
+
+    if (user.role === "professionnel") {
+      // Compter les avis reçus
+      count = await Review.countDocuments({ destinataire: userId });
+    } else if (user.role === "client") {
+      // Compter les avis envoyés
+      count = await Review.countDocuments({ auteur: userId });
+    }
+
+    res.json({ count });
+  } catch (err) {
+    console.error("Erreur lors du comptage des avis :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+router.get("/stats", async (req, res) => {
+  try {
+    // 1. Compter les professionnels
+    const professionnelsCount = await User.countDocuments({ role: "professionnel" });
+
+    // 2. Récupérer toutes les spécialités distinctes
+    const specialites = await Prestataire.distinct("specialite");
+    const specialiteCount = specialites.length;
+
+    res.json({
+      professionnelsCount,
+      specialiteCount,
+      specialites, // optionnel : retourne aussi la liste des spécialités
+    });
+  } catch (err) {
+    console.error("Erreur lors de la récupération des statistiques :", err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
 
 module.exports = router; 
